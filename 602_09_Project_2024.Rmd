@@ -1,0 +1,507 @@
+---
+title: "Exploratory Data Analysis of Sleep Dataset"
+output:
+  word_document: default
+  html_document: default
+  pdf_document: default
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+## DATA 602 L01 - 9: Final Group Project
+
+## Group Members:
+
+Pawanjot Bath, Malhar Dhawle, Chris Petrauskas, Rehan Chanegaon and
+Yuhan Zhang
+
+## Objective and Introduction
+
+As graduate students, the quality of our sleep plays an important role
+in academic performance. Sleep helps prepare the brain to learn,
+remember, and create, which is essential when balancing studies with
+full-time or part-time work.
+
+Sleep efficiency is commonly defined as the ratio of total sleep time to
+total time spent in bed:
+$$\frac{total\ sleep\ time}{total\ time\ in\ bed} \times 100\%$$
+
+Good sleep efficiency is typically shown to be 85% or higher. Poor sleep
+quality is associated with health risks such as depression, and other
+psychiatric disorders, as well as physical diseases like type 2
+diabetes, hypertension and coronary heart disease. Sleep efficiency is
+also a key factor when discussing insomnia.
+
+Our project aims to investigate the relationship between **sleep
+efficiency and lifestyle factors**, focusing on **exercise
+frequency(days/week)** and **alcohol consumption(oz 24 hours before)**.
+Factors such as smoking status and gender can also be considered in
+future analysis . Through data analysis, hypothesis testing, and linear
+regression, we aim to gain insights that can help students optimize
+their sleep patterns through lifestyle choices.
+
+The dataset contains 452 observations and 15 variables, allowing us to
+explore how lifestyle factors impact sleep efficiency.
+
+
+## Research Questions and Hypotheses
+
+Based on our dataset and research objectives, we have formulated the following research questions and hypotheses:
+
+1. **Does alcohol consumption have an impact on sleep efficiency?**
+   - **Null Hypothesis (H0):** Alcohol consumption has no effect on sleep efficiency.
+   - **Alternative Hypothesis (H1):** Alcohol consumption reduces sleep efficiency.
+
+2. **Does exercise frequency have an impact on sleep efficiency?**
+   - **Null Hypothesis (H0):** Exercise frequency has no effect on sleep efficiency.
+   - **Alternative Hypothesis (H1):** Exercise frequency improves sleep efficiency.
+
+---
+
+# Dataset Overview
+```{r setup, include=FALSE}
+set.seed(123)
+options(scipen=999)
+library(dplyr)
+library(ggplot2)
+library(corrplot)  
+library(tidyr)
+library(lubridate)
+
+# Load Dataset
+sleep_data <- read.csv("Sleep_Efficiency.csv")
+
+# Overview of the dataset
+dim(sleep_data)  # Dimensions of the dataset
+summary(sleep_data)  # Summary statistics
+str(sleep_data)  # Structure of the dataset
+```
+
+### Data Cleaning : EDA
+```{r}
+sum(is.na(sleep_data))
+# Remove missing values
+sleep_data <- na.omit(sleep_data)
+
+# Convert columns to datetime format 021-03-06 01:00:00
+sleep_data$Wakeup.time <- as.POSIXct(sleep_data$Wakeup.time, format = "%Y-%m-%d %H:%M:%S")
+sleep_data$Bedtime <- as.POSIXct(sleep_data$Bedtime, format = "%Y-%m-%d %H:%M:%S")
+
+# Check for missing values
+sum(is.na(sleep_data))
+
+#https://stackoverflow.com/questions/25960517/how-to-convert-date-and-time-from-character-to-datetime-type
+```
+
+```{r}
+str(sleep_data)
+```
+
+## Data Preparation
+The dataset is first read and processed to convert categorical variables into numerical ones.
+Additionally, new features such as the month and bedtime relative to a reference time are added.
+```{r}
+df = read.csv("Sleep_Efficiency.csv")
+
+# Convert Gender column to 1 for man, 0 for woman
+df <- df %>%
+  mutate(Gender = ifelse(Gender == "Female", 1, 0))
+df$Gender <- as.integer(df$Gender)
+
+# Same for Smoking
+df <- df %>%
+  mutate(Smoking.status = ifelse(Smoking.status == "Yes", 1, 0))
+df$Smoking.status <- as.integer(df$Smoking.status)
+
+# Add month of year
+df$Month = month(df$Bedtime)
+
+# Reformat Bedtime and Waketime (only care about time not date)
+df <- df %>%
+  mutate(
+    Bedtime = format(as.POSIXct(dmy_hm(Bedtime)), "%H:%M"),
+    Wakeup.time = format(as.POSIXct(dmy_hm(Wakeup.time)), "%H:%M")
+  )
+
+# Rename Wakeup.time to Waketime
+df <- df %>%
+  rename(Waketime = Wakeup.time)
+
+# Create bedtime in relation to 9pm (earliest bed time in dataset)
+reference_time <- as.POSIXct("21:00", format = "%H:%M")
+df$Bedtime.from9pm <- as.numeric(difftime(as.POSIXct(df$Bedtime, format = "%H:%M"), reference_time, units = "hours"))
+# Logic to standardize across midnight
+df <- df %>%
+  mutate(Bedtime.from9pm = ifelse(Bedtime.from9pm < 0, Bedtime.from9pm + 24, Bedtime.from9pm))
+
+# Replace NA values in Exercise.frequency with 0
+df <- df %>%
+  mutate(across(where(is.numeric), ~ replace_na(., 0)))
+```
+
+
+
+
+
+### Distribution of Sleep Duration
+The following histogram displays the distribution of **sleep duration** among the participants.
+We can see that the majority of participants have a sleep duration between 7 to 8 hours.
+
+```{r}
+ggplot(sleep_data, aes(x=Sleep.duration)) +
+  geom_histogram(binwidth=0.5, fill="#7575d2", color="white") +
+  labs(title="Distribution of Sleep Duration", x="Sleep Duration (hours)", y="Count") +
+  theme_minimal()
+```
+
+### Alcohol Consumption Analysis
+
+We observe a **negative correlation** between alcohol consumption and sleep efficiency, 
+indicating that higher alcohol consumption is associated with lower sleep 
+efficiency.
+
+```{r}
+# Correlation between Alcohol Consumption and Sleep Efficiency
+cor(sleep_data$Alcohol.consumption, sleep_data$Sleep.efficiency)
+```
+
+The scatter plot below shows the relationship between **alcohol consumption** and **sleep efficiency**. 
+The red line represents the **linear regression fit**, illustrating any correlation between these two variables.
+```{r}
+ggplot(sleep_data, aes(x=Alcohol.consumption, y=Sleep.efficiency)) +
+  geom_point(alpha=0.6, color="cyan") +
+  labs(title="Sleep Efficiency vs. Alcohol Consumption", x="Alcohol Consumption (units)", y="Sleep Efficiency") +
+  theme_minimal() +
+  geom_smooth(method="lm", se=FALSE, color="red")
+```
+
+### Sleep Efficiency by Smoking Status
+This box plot compares **sleep efficiency** between **smokers** and 
+**non-smokers**. The jittered points help visualize individual data points 
+based on smoking status.
+
+```{r}
+ggplot(sleep_data, aes(x = Smoking.status, y = Sleep.efficiency)) +
+  geom_boxplot(fill = c("lightyellow", "lightgreen"), alpha = 0.7) +
+  geom_jitter(color = "black", size = 0.4, alpha = 0.9, width = 0.2) +
+  labs(title = "Sleep Efficiency by Smoking Status", x = "Smoking Status", y = "Sleep Efficiency")
+```
+The box plot shows that non-smokers tend to have slightly higher sleep efficiency 
+compared to smokers. The distributon of sleep efficiency values is wider for
+smokers than non-smokers.
+
+### Age Group Analysis
+We categorize participants into **age groups** to analyze their 
+sleep efficiency. This box plot helps identify trends or patterns 
+in sleep efficiency across different age groups.
+
+```{r}
+sleep_data <- sleep_data %>%
+  mutate(Age_Group = case_when(
+    Age < 15 ~ "1_Child",
+    Age < 35 ~ "2_Young Adult",
+    Age < 55 ~ "3_Adult",
+    Age < 200 ~ "4_Senior"
+  ))
+
+ggplot(sleep_data, aes(x=Age_Group, y=Sleep.efficiency)) +
+  geom_boxplot(fill="lightblue") +
+  geom_jitter(color = "#25346a", size = 0.4, alpha = 0.9, width = 0.2) +
+  labs(title="Sleep Efficiency by Age Group", x="Age Group", y="Sleep Efficiency")
+
+# https://www.r4epi.com/conditional-operations
+```
+
+This box plot shows that sleep efficiency of Child is lower than other age
+groups. The sleep efficiency gradually increases from youth to Young Adult and then
+starts to decrease from Adult to Senior.
+
+## Gender Analysis
+### Sleep Efficiency
+This violin plot provides a comparison of **sleep efficiency** by **gender**, highlighting the distribution of sleep efficiency values for males and females.
+
+```{r}
+ggplot(sleep_data, aes(x = Gender, y = Sleep.efficiency, fill = Gender)) +
+  geom_violin() +
+  labs(title = "Comparison of Sleep Efficiency by Gender", x = "Gender", y = "Sleep Efficiency")
+```
+
+We can observe that there is no significant difference in sleep efficiency between both genders.
+
+
+### Deep Sleep
+
+Analyze **deep sleep percentage** by gender using a violin plot with an 
+overlayed box plot for better comparison of distributions.
+
+```{r}
+ggplot(sleep_data, aes(x = Gender, y = Deep.sleep.percentage, fill = Gender)) +
+  geom_violin(scale = "count") +
+  geom_boxplot(width=0.1, color="#1e1c1c", alpha=0.2) +
+  labs(title = "Comparison of Deep Sleep Percentage by Gender", x = "Gender", y = "Deep Sleep Percentage")
+```
+
+The violin plot shows that the distribution of deep sleep percentage is higher in Males
+compared to Females.
+
+
+### REM Sleep
+
+Analyze **REM sleep percentage** by gender using a density plot to compare the distribution of REM sleep percentages
+to see if there is any significant difference.
+
+```{r}
+ggplot(sleep_data, aes(x = REM.sleep.percentage, fill = Gender)) +
+  geom_density(alpha = 0.5) +
+  labs(title = "Density Plot of REM Sleep Percentage by Gender", x = "REM Sleep Percentage", y = "Density") +
+  theme_minimal()
+```
+
+The density plot shows are almost overlapping for REM sleep percentages across genders, which indicates that 
+gender may not be a significant factor influencing REM sleep percentage in this dataset.
+
+
+
+### Correlation Analysis
+The correlation matrix helps us understand the relationships between numeric variables in the dataset.
+The plot serves as an initial step to identify variables worth investigating more deeply.
+```{r}
+numeric_df <- df %>%
+  select(-ID, -Bedtime, -Waketime) %>%
+  select_if(is.numeric)
+
+cor_matrix <- cor(numeric_df, use = "complete.obs")
+
+corrplot(cor_matrix, 
+         method = "color",    
+         type = "upper",      
+         tl.col = "black",    
+         tl.srt = 45,         
+         addCoef.col = "black", 
+         number.cex = 0.5,
+         tl.cex = 0.7,
+         diag = FALSE)        
+```
+
+
+# Hypothesis Testing
+
+### Hypothesis 1: Alcohol Consumption and Sleep Efficiency
+We will test the hypothesis that **alcohol consumption** affects **sleep efficiency**.
+
++ Null Hypothesis (H0): Alcohol consumption has no effect on sleep efficiency.
++ Alternative Hypothesis (H1): Alcohol consumption reduces sleep efficiency.
+
+```{r}
+# Correlation between Alcohol Consumption and Sleep Efficiency
+no_alcohol <- filter(sleep_data, Alcohol.consumption == 0)
+alcohol_consumed <- filter(sleep_data, Alcohol.consumption > 0)
+
+t.test(alcohol_consumed$Sleep.efficiency, no_alcohol$Sleep.efficiency, alternative = "less")
+```
+
+The p-value `0.0000000000004762` is less than 0.05, which indicates that we reject the null hypothesis.
+Therefore, we conclude that alcohol consumption reduces sleep efficiency.
+
+
+### Hypothesis 2: Exercise frequency and Sleep Efficiency
+We will test the hypothesis that **exercise frequency** has an impact on **sleep efficiency**.
++ Null Hypothesis (H0): Exercise frequency has no effect on sleep efficiency.
++ Alternative Hypothesis (H1): Exercise frequency improves sleep efficiency.
+
+```{r}
+# Independent Samples T-Test
+low_exercise <- filter(sleep_data, Exercise.frequency == 0)
+high_exercise <- filter(sleep_data, Exercise.frequency > 0)
+
+t.test(low_exercise$Sleep.efficiency, high_exercise$Sleep.efficiency, alternative = "less")
+```
+
+Since the p-value is much lower than 0.05, we reject the null hypothesis. 
+These results provide strong evidence to support the alternative hypothesis
+that exercise frequency improves in sleep efficiency.
+
+
+
+## Exploring Alcohol Consumption variable and relationships
+
+```{r}
+# Exploring Alcohol Consumption variable and relationships
+combined_table <- df %>%
+  group_by(Alcohol.consumption) %>%
+  summarise(
+    Count = n(),
+    Average.Deep.Sleep.Percentage = mean(Deep.sleep.percentage, na.rm = TRUE),
+    Average.Sleep.Efficiency = mean(Sleep.efficiency, na.rm = TRUE),
+    Average.Awakenings = mean(Awakenings, na.rm = TRUE)  
+  ) %>%
+  arrange(Alcohol.consumption)
+```
+
+
+### Alcohol Consumption vs. Sleep Efficiency Scatter Plot
+The scatter plot illustrates the negative relationship between alcohol consumption and 
+sleep efficiency. The linear trend line confirms that higher alcohol intake is associated 
+with reduced sleep efficiency. Some variability around the trend suggests other influencing 
+factors.
+
+```{r}
+ggplot(df, aes(x = Alcohol.consumption, y = Sleep.efficiency)) + 
+  geom_jitter(alpha = 0.6, width = 0.2, height = 0.2) +        
+  geom_smooth(method = "lm", color = "blue", se = FALSE) + 
+  labs(title = "Scatter Plot of Sleep Efficiency vs. Alcohol Consumption",
+       x = "Alcohol Consumption (units)", 
+       y = "Sleep Efficiency (%)") +        
+  theme_minimal()                      
+```
+
+# Linear Regression Model for Alcohol and Sleep Efficiency
+We fit a linear regression model to quantify the impact of alcohol on sleep efficiency. 
+The model shows that each unit increase in alcohol consumption decreases sleep efficiency 
+by approximately 3.2%, with the result being statistically significant
+```{r}
+# Fit the linear regression model for alcohol and sleep efficiency
+alcohol_model = lm(Sleep.efficiency ~ Alcohol.consumption, data = df)
+summary(alcohol_model)
+```
+
+Each ounce of alcohol reduces sleep efficiency 3.2%. Significant
+positive intercept just means people still sleep without alcohol - at
+83% efficiency - this can be considered the "base" sleep efficiency
+value. High level of significance (0.1%) despite small effect. i.e. we
+can be 99.9% confident alcohol has a real effect on sleep efficiency. R
+squared fairly low - 14% of sleep efficiency variation explained by
+alcohol intake - likely because there are other explanatory variables.
+Extension would be multivariate regression model.
+
+
+### Residuals vs. Fitted Plot for Alcohol Model
+This plot assesses the model's residuals. The residuals are evenly spread with no clear 
+pattern, suggesting that the linear model is reasonable, although outliers may affect 
+fit at extreme values.
+```{r}
+alcohol_residual_plot = plot(alcohol_model, which = 1)  # Residuals vs Fitted plot
+```
+
+### Q-Q Plot for Alcohol Model Residuals
+Looking for the normality of the residuals in the alcohol consumption model using Q-Q plot. 
+The points generally follow the diagonal line, indicating that the residuals are approximately 
+normally distributed. However, some deviations at the extremes suggest the presence of 
+outliers or slight skewness, which might affect the model's assumptions at these points.
+
+```{r}
+alcohol_qq = plot(alcohol_model, which = 2) 
+```
+
+
+## Exploring Exercise Frequency and Its Relationship to Sleep Efficiency
+Here, we summarize the impact of exercise frequency on various sleep metrics, 
+including average deep sleep percentage, sleep efficiency, and awakenings. 
+This table helps us see the general trends and averages based on exercise levels.
+
+
+```{r}
+# Exploring Exercise.frequency variable and relationships
+combined_table <- df %>%
+  group_by(Exercise.frequency) %>%
+  summarise(
+    Count = n(),
+    Average.Deep.Sleep.Percentage = mean(Deep.sleep.percentage, na.rm = TRUE),
+    Average.Sleep.Efficiency = mean(Sleep.efficiency, na.rm = TRUE),
+    Average.Awakenings = mean(Awakenings, na.rm = TRUE)  
+  ) %>%
+  arrange(Exercise.frequency)
+```
+### Exercise Frequency vs. Sleep Efficiency Scatter Plot
+This plot shows a positive correlation between exercise frequency and sleep efficiency. 
+The linear trend line suggests that as individuals exercise more frequently, 
+their sleep efficiency improves. However, some data points deviate, 
+indicating other influencing variables.
+
+```{r}
+ggplot(df, aes(x = Exercise.frequency, y = Sleep.efficiency)) + 
+  geom_jitter(alpha = 0.6, width = 0.2, height = 0.2) +        
+  geom_smooth(method = "lm", color = "blue", se = FALSE) +     
+  labs(title = "Scatter Plot of Sleep Efficiency vs. Exercise Frequency",
+       x = "Exercise Frequency (days/week)",                 
+       y = "Sleep Efficiency (%)") +                          
+  theme_minimal()         
+```
+
+# Linear Regression Model for Exercise and Sleep Efficiency
+The linear model indicates that each additional day of exercise per week increases sleep efficiency by approximately 2.4%. 
+The model is statistically significant, confirming the positive relationship.
+```{r}
+# Fit a linear model for exercise and sleep efficiency
+exercise_model <- lm(Sleep.efficiency ~ Exercise.frequency, data = df)
+summary(exercise_model)
+```
+
+
+Each weekly exercise session increases sleep efficiency 2.4%. Slightly
+different "base" sleep efficiency of 75% indicated by Intercept value.
+Again significant to 0.1% - i.e. maybe a small effect but high
+confidence. R squared again low at 7% variation of sleep efficiency
+explained - but combining exercise and alcohol into multivariate model
+may explain up to 20%
+
+
+### Residuals vs. Fitted Plot for Exercise Model
+The residuals are fairly distributed around the fitted values, 
+indicating that the model captures the linear relationship reasonably well. 
+However, minor deviations hint at potential outliers or non-linear effects.
+```{r}
+plot(exercise_model, which = 1)  # Residuals vs Fitted plot
+```
+
+
+### Q-Q Plot for Exercise Model Residuals
+The Q-Q plot points mostly align with the diagonal line, suggesting that the residuals 
+are approximately normal, although slight deviations at the extremes indicate 
+the presence of outliers.
+```{r}
+plot(exercise_model, which = 2)  # QQ plot for residuals
+```
+
+
+
+
+# Conclusion
+
+While our dataset of 452 observations is relatively small, it still represents a substantial sample size to obtain reliable and meaningful regression results. The data is clean, and we have selected appropriate variables that effectively predict our outcomes. This allowed us to draw valid conclusions, as evidenced by the clear positive and negative linear relationships observed in our analysis.
+
+## Key Findings
+
+- **Exercise Frequency and Sleep Efficiency**:  
+  Our analysis shows a positive relationship between exercise frequency and sleep efficiency. Based on these results, we recommend that students engage in exercise 3–5 times per week to potentially improve their sleep quality.
+
+- **Alcohol Consumption and Sleep Efficiency**:  
+  We observed a negative correlation between alcohol consumption and sleep efficiency. For students aiming to optimize their sleep, particularly when they have important tasks to complete, we advise minimizing or avoiding alcohol intake.
+
+## Limitations and Future Directions
+
+While our models show statistical significance, several factors should be considered for future research:
+
+- **Sample Size**:  
+  Although 452 observations provide meaningful insights, a larger sample size could further enhance the reliability and generalization of our findings.
+
+- **Outlier Analysis**:  
+  Future investigations could include a thorough examination of outliers that may be influencing our models, potentially leading to more refined results.
+
+- **Multivariate Approach**:  
+  To gain a more comprehensive understanding of sleep efficiency, future analyses should consider a multivariate regression model. This approach would allow us to account for additional factors such as smoking status, caffeine consumption, and more.
+
+---
+
+## References
+
+1. Good sleep for good health. (2024b, June 18). NIH News in Health. [https://newsinhealth.nih.gov/2021/04/good-sleep-good-health#:~:text=It%20can%20make%20getting%20a,of%20many%20diseases%20and%20disorders](https://newsinhealth.nih.gov/2021/04/good-sleep-good-health#:~:text=It%20can%20make%20getting%20a,of%20many%20diseases%20and%20disorders).
+
+2. Ikeda, Y., Morita, E., Muroi, K., Arai, Y., Ikeda, T., Takahashi, T., Shiraki, N., Doki, S., Hori, D., Oi, Y., Sasahara, S. I., Ishihara, A., Matsumoto, S., Yanagisawa, M., Satoh, M., & Matsuzaki, I. (2022). Relationships between sleep efficiency and lifestyle evaluated by objective sleep assessment: Sleep Epidemiology Project at University of Tsukuba. *Nagoya Journal of Medical Science*, 84(3), 554–569. [https://doi.org/10.18999/nagjms.84.3.554](https://doi.org/10.18999/nagjms.84.3.554).
+
+3. Peters, B., MD. (2024, May 20). How to improve your sleep efficiency. *Verywell Health*. [https://www.verywellhealth.com/sleep-efficiency-3014912](https://www.verywellhealth.com/sleep-efficiency-3014912).
+
+
+
+
